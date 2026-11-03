@@ -1,47 +1,67 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { RoborockClient, RoborockDevice } from '../roborock/api';
 import { TuyaClient, TuyaDevice } from '../tuya/api';
 import { useTheme } from '../theme';
 
 const NOT_CONNECTED = [
-  { name: 'TV Samsung', source: 'SmartThings' },
-  { name: 'Roborock', source: 'cont Roborock' },
+  { name: 'TV Samsung', source: 'rețea locală' },
   { name: 'Airfryer Philips', source: 'cont HomeID' },
 ];
 
 type Props = {
   tuya: TuyaClient | null;
+  roborock: RoborockClient | null;
   onConnectTuya: () => void;
   onLogoutTuya: () => void;
+  onConnectRoborock: () => void;
+  onLogoutRoborock: () => void;
 };
 
-export default function Home({ tuya, onConnectTuya, onLogoutTuya }: Props) {
+export default function Home({
+  tuya,
+  roborock,
+  onConnectTuya,
+  onLogoutTuya,
+  onConnectRoborock,
+  onLogoutRoborock,
+}: Props) {
   const t = useTheme();
   const [devices, setDevices] = useState<TuyaDevice[]>([]);
+  const [robots, setRobots] = useState<RoborockDevice[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rrError, setRrError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!tuya) return;
     setLoading(true);
-    setError(null);
-    try {
-      const homes = await tuya.homes();
-      const all: TuyaDevice[] = [];
-      for (const h of homes) all.push(...(await tuya.devices(h.id)));
-      setDevices(all);
-    } catch (e: any) {
-      setError(`Tuya: ${e?.message ?? 'eroare necunoscută'}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [tuya]);
+    if (tuya) {
+      setError(null);
+      try {
+        const homes = await tuya.homes();
+        const all: TuyaDevice[] = [];
+        for (const h of homes) all.push(...(await tuya.devices(h.id)));
+        setDevices(all);
+      } catch (e: any) {
+        setError(`Tuya: ${e?.message ?? 'eroare necunoscută'}`);
+      }
+    } else setDevices([]);
+
+    if (roborock) {
+      setRrError(null);
+      try {
+        setRobots(await roborock.devices());
+      } catch (e: any) {
+        setRrError(`Roborock: ${e?.message ?? 'eroare necunoscută'}`);
+      }
+    } else setRobots([]);
+    setLoading(false);
+  }, [tuya, roborock]);
 
   useEffect(() => {
-    if (tuya) load();
-    else setDevices([]);
-  }, [tuya, load]);
+    load();
+  }, [load]);
 
   return (
     <ScrollView
@@ -103,6 +123,36 @@ export default function Home({ tuya, onConnectTuya, onLogoutTuya }: Props) {
       )}
 
       {error && <Text style={{ color: t.error, marginBottom: 12 }}>{error}</Text>}
+
+      <View style={[styles.sectionRow, { marginTop: 16 }]}>
+        <Text style={[styles.section, { color: t.fg }]}>Roborock</Text>
+        {roborock && (
+          <Pressable onPress={onLogoutRoborock}>
+            <Text style={{ color: t.accent }}>Deconectare</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {!roborock ? (
+        <Pressable onPress={onConnectRoborock} style={[styles.card, { backgroundColor: t.card }]}>
+          <Text style={[styles.cardTitle, { color: t.accent }]}>Conectează contul Roborock</Text>
+          <Text style={{ color: t.muted }}>Aspiratorul robot</Text>
+        </Pressable>
+      ) : (
+        robots.map((r) => (
+          <View key={r.duid} style={[styles.card, { backgroundColor: t.card }]}>
+            <View style={styles.row}>
+              <Text style={[styles.cardTitle, { color: t.fg, flex: 1 }]}>{r.name}</Text>
+              <Text style={{ color: r.online ? t.ok : t.muted }}>{r.online ? '● online' : '○ offline'}</Text>
+            </View>
+            <Text style={{ color: t.muted }}>
+              {r.productName}
+              {r.battery != null ? ` · baterie ${r.battery}%` : ''}
+            </Text>
+          </View>
+        ))
+      )}
+      {rrError && <Text style={{ color: t.error, marginBottom: 12 }}>{rrError}</Text>}
 
       <Text style={[styles.section, { color: t.fg, marginTop: 16 }]}>În curând</Text>
       {NOT_CONNECTED.map((d) => (
