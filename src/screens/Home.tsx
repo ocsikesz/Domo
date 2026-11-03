@@ -1,37 +1,43 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { RoborockClient, RoborockDevice } from '../roborock/api';
+import { StClient, StDevice } from '../smartthings/api';
 import { TuyaClient, TuyaDevice } from '../tuya/api';
 import { useTheme } from '../theme';
 
-const NOT_CONNECTED = [
-  { name: 'TV Samsung', source: 'rețea locală' },
-  { name: 'Airfryer Philips', source: 'cont HomeID' },
-];
+const NOT_CONNECTED = [{ name: 'Airfryer Philips', source: 'cont HomeID' }];
 
 type Props = {
   tuya: TuyaClient | null;
   roborock: RoborockClient | null;
+  smartthings: StClient | null;
   onConnectTuya: () => void;
   onLogoutTuya: () => void;
   onConnectRoborock: () => void;
   onLogoutRoborock: () => void;
+  onConnectSt: () => void;
+  onLogoutSt: () => void;
 };
 
 export default function Home({
   tuya,
   roborock,
+  smartthings,
   onConnectTuya,
   onLogoutTuya,
   onConnectRoborock,
   onLogoutRoborock,
+  onConnectSt,
+  onLogoutSt,
 }: Props) {
   const t = useTheme();
   const [devices, setDevices] = useState<TuyaDevice[]>([]);
   const [robots, setRobots] = useState<RoborockDevice[]>([]);
+  const [tvs, setTvs] = useState<StDevice[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rrError, setRrError] = useState<string | null>(null);
+  const [stError, setStError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -56,8 +62,25 @@ export default function Home({
         setRrError(`Roborock: ${e?.message ?? 'eroare necunoscută'}`);
       }
     } else setRobots([]);
+
+    if (smartthings) {
+      setStError(null);
+      try {
+        setTvs((await smartthings.devices()).filter((d) => d.isTv || d.capabilities.includes('switch')));
+      } catch (e: any) {
+        setStError(`SmartThings: ${e?.message ?? 'eroare necunoscută'}`);
+      }
+    } else setTvs([]);
     setLoading(false);
-  }, [tuya, roborock]);
+  }, [tuya, roborock, smartthings]);
+
+  async function tvCmd(fn: () => Promise<void>) {
+    try {
+      await fn();
+    } catch (e: any) {
+      setStError(`SmartThings: ${e?.message ?? 'comanda a eșuat'}`);
+    }
+  }
 
   useEffect(() => {
     load();
@@ -154,6 +177,46 @@ export default function Home({
       )}
       {rrError && <Text style={{ color: t.error, marginBottom: 12 }}>{rrError}</Text>}
 
+      <View style={[styles.sectionRow, { marginTop: 16 }]}>
+        <Text style={[styles.section, { color: t.fg }]}>Samsung (SmartThings)</Text>
+        {smartthings && (
+          <Pressable onPress={onLogoutSt}>
+            <Text style={{ color: t.accent }}>Deconectare</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {!smartthings ? (
+        <Pressable onPress={onConnectSt} style={[styles.card, { backgroundColor: t.card }]}>
+          <Text style={[styles.cardTitle, { color: t.accent }]}>Conectează SmartThings</Text>
+          <Text style={{ color: t.muted }}>Televizoare Samsung</Text>
+        </Pressable>
+      ) : (
+        tvs.map((d) => (
+          <View key={d.id} style={[styles.card, { backgroundColor: t.card }]}>
+            <Text style={[styles.cardTitle, { color: t.fg }]}>{d.label}</Text>
+            <View style={styles.controls}>
+              {d.capabilities.includes('switch') && (
+                <>
+                  <CtrlButton t={t} label="Pornit" onPress={() => tvCmd(() => smartthings.setPower(d.id, true))} />
+                  <CtrlButton t={t} label="Oprit" onPress={() => tvCmd(() => smartthings.setPower(d.id, false))} />
+                </>
+              )}
+              {d.capabilities.includes('audioVolume') && (
+                <>
+                  <CtrlButton t={t} label="Vol +" onPress={() => tvCmd(() => smartthings.volume(d.id, true))} />
+                  <CtrlButton t={t} label="Vol −" onPress={() => tvCmd(() => smartthings.volume(d.id, false))} />
+                </>
+              )}
+              {d.capabilities.includes('audioMute') && (
+                <CtrlButton t={t} label="Mut" onPress={() => tvCmd(() => smartthings.mute(d.id))} />
+              )}
+            </View>
+          </View>
+        ))
+      )}
+      {stError && <Text style={{ color: t.error, marginBottom: 12 }}>{stError}</Text>}
+
       <Text style={[styles.section, { color: t.fg, marginTop: 16 }]}>În curând</Text>
       {NOT_CONNECTED.map((d) => (
         <View key={d.name} style={[styles.card, { backgroundColor: t.card }]}>
@@ -165,8 +228,18 @@ export default function Home({
   );
 }
 
+function CtrlButton({ t, label, onPress }: { t: ReturnType<typeof useTheme>; label: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={[styles.ctrl, { borderColor: t.accent }]}>
+      <Text style={{ color: t.accent, fontWeight: '600' }}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { paddingHorizontal: 20, paddingTop: 72, paddingBottom: 40 },
+  controls: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  ctrl: { borderWidth: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14 },
   title: { fontSize: 32, fontWeight: '700' },
   subtitle: { fontSize: 15, marginTop: 4, marginBottom: 24 },
   sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },

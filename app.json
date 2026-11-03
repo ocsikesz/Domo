@@ -16,6 +16,7 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.ocsike.domo",
       "versionCode": 1
-    }
+    },
+    "scheme": "domo"
   }
 }
